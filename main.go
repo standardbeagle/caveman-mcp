@@ -6,9 +6,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+var imageExts = map[string]bool{
+	".png": true, ".jpg": true, ".jpeg": true,
+	".gif": true, ".webp": true, ".bmp": true,
+}
 
 // ── tool arg structs ──────────────────────────────────────────────────────────
 
@@ -65,6 +72,23 @@ func main() {
 		Name:        "condense_file",
 		Description: "Read a local file (md/pdf/docx/html/txt), extract text, and condense to Wenyan. Returns compressed text with stats.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args CondenseFileArgs) (*mcp.CallToolResult, any, error) {
+		ext := strings.ToLower(filepath.Ext(args.Path))
+
+		if imageExts[ext] {
+			desc, err := DescribeImage(ctx, args.Path, cfg)
+			if err != nil {
+				return nil, nil, fmt.Errorf("describe image %s: %w", args.Path, err)
+			}
+			r := &Result{
+				Compressed:      desc,
+				OriginalChars:   len(desc),
+				CompressedChars: len(desc),
+				Ratio:           1.0,
+				Method:          "vision",
+			}
+			return resultContent(r), nil, nil
+		}
+
 		text, err := ExtractFile(args.Path)
 		if err != nil {
 			return nil, nil, fmt.Errorf("extract file %s: %w", args.Path, err)

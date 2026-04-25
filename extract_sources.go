@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -570,8 +572,88 @@ func extractRSS(ctx context.Context, rawURL string) (string, error) {
 	return strings.TrimSpace(sb.String()), nil
 }
 
+type llmVisionMsg struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+
+type llmVisionReq struct {
+	Model    string         `json:"model"`
+	Messages []llmVisionMsg `json:"messages"`
+}
+
+type visionContentPart struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *visionImgURL `json:"image_url,omitempty"`
+}
+
+type visionImgURL struct {
+	URL string `json:"url"`
+}
+
+const visionPrompt = `Describe this image in ≤40 classical Chinese wenyan characters.
+Diagrams/charts: extract structure and data values.
+UI screenshots: list key components and layout.
+Photos: scene + key subjects.
+Preserve ALL text, numbers, identifiers exactly.`
+
 func DescribeImage(ctx context.Context, path string, cfg Config) (string, error) {
-	return "", nil // TODO
+	imgBytes, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read image: %w", err)
+	}
+
+	ext := strings.ToLower(filepath.Ext(path))
+	mimeType := map[string]string{
+		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+		".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+	}[ext]
+	if mimeType == "" {
+		mimeType = "image/png"
+	}
+
+	b64 := base64.StdEncoding.EncodeToString(imgBytes)
+	dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
+
+	parts := []visionContentPart{
+		{Type: "image_url", ImageURL: &visionImgURL{URL: dataURL}},
+		{Type: "text", Text: visionPrompt},
+	}
+	contentJSON, _ := json.Marshal(parts)
+
+	reqBody, _ := json.Marshal(llmVisionReq{
+		Model: cfg.Model,
+		Messages: []llmVisionMsg{
+			{Role: "user", Content: contentJSON},
+		},
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", cfg.BaseURL+"/chat/completions", bytes.NewReader(reqBody))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("vision LLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	var r llmResp
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return "", fmt.Errorf("decode vision response: %w (body: %.200s)", err, raw)
+	}
+	if r.Error != nil {
+		return "", fmt.Errorf("vision LLM error: %s", r.Error.Message)
+	}
+	if len(r.Choices) == 0 {
+		return "", fmt.Errorf("no choices in vision response")
+	}
+	return strings.TrimSpace(r.Choices[0].Message.Content), nil
 }
 
 func TranscribeAudio(ctx context.Context, path string, cfg Config) (string, error) {

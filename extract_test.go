@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 )
@@ -170,6 +172,52 @@ func TestParseRSS(t *testing.T) {
 	}
 	if !strings.Contains(text, "Description of article one") {
 		t.Errorf("missing item description; got:\n%s", text)
+	}
+}
+
+func TestDescribeImageMock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if len(req.Messages) == 0 {
+			t.Error("no messages in vision request")
+		}
+		var parts []interface{}
+		if err := json.Unmarshal(req.Messages[0].Content, &parts); err != nil {
+			t.Errorf("vision content is not array: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"content":"圖示系統架構三層：前端、後端、資料庫"}}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := Config{BaseURL: srv.URL, APIKey: "test", Model: "test-vision"}
+
+	pngData := []byte{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE,
+		0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54,
+		0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+		0xE2, 0x21, 0xBC, 0x33,
+		0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+	}
+	tmp, _ := os.CreateTemp("", "test-*.png")
+	tmp.Write(pngData)
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	desc, err := DescribeImage(context.Background(), tmp.Name(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if desc == "" {
+		t.Error("empty description")
 	}
 }
 
