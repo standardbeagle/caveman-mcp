@@ -430,6 +430,68 @@ Date:   Tue Apr 23 08:00:00 2026 -0700
 	}
 }
 
+func TestParseGoStackTrace(t *testing.T) {
+	trace := `panic: runtime error: index out of range [5] with length 3
+
+goroutine 1 [running]:
+main.processItems(...)
+	/home/user/app/main.go:42 +0x1a3
+main.handler(0xc000014080)
+	/home/user/app/handler.go:18 +0x65
+net/http.HandlerFunc.ServeHTTP(...)
+	/usr/local/go/src/net/http/server.go:2136 +0x44
+net/http.(*ServeMux).ServeHTTP(...)
+	/usr/local/go/src/net/http/server.go:2514 +0x149
+`
+
+	result := ParseLog(trace)
+	if !strings.Contains(result, "main.processItems") {
+		t.Errorf("missing app frame; got:\n%s", result)
+	}
+	if !strings.Contains(result, "main.go:42") {
+		t.Errorf("missing file:line; got:\n%s", result)
+	}
+	if strings.Contains(result, "net/http.HandlerFunc") {
+		t.Errorf("stdlib frame not stripped; got:\n%s", result)
+	}
+}
+
+func TestParsePythonStackTrace(t *testing.T) {
+	trace := `Traceback (most recent call last):
+  File "app.py", line 42, in handler
+    result = process(data)
+  File "lib/process.py", line 15, in process
+    return parse(raw)
+  File "/usr/lib/python3.9/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+ValueError: No JSON object could be decoded`
+
+	result := ParseLog(trace)
+	if !strings.Contains(result, "ValueError") {
+		t.Errorf("missing exception type; got:\n%s", result)
+	}
+	if !strings.Contains(result, "app.py") {
+		t.Errorf("missing app frame; got:\n%s", result)
+	}
+	if strings.Contains(result, "/usr/lib/python") {
+		t.Errorf("stdlib path not stripped; got:\n%s", result)
+	}
+}
+
+func TestDeduplicateErrors(t *testing.T) {
+	single := `goroutine 5 [running]:
+main.connect(...)
+	/app/db.go:22 +0x88
+
+`
+	trace := strings.Repeat("ERROR connection refused\n"+single, 3)
+
+	result := ParseLog(trace)
+	if !strings.Contains(result, "×3") && !strings.Contains(result, "x3") {
+		t.Errorf("dedup count missing; got:\n%s", result)
+	}
+}
+
 func TestCondenseGitValidation(t *testing.T) {
 	args := CondenseGitArgs{Text: "some diff", Path: "/tmp/diff.txt"}
 	_, err := resolveGitInput(context.Background(), args)

@@ -45,6 +45,12 @@ type CondenseGitArgs struct {
 	SkipLLM bool   `json:"skip_llm,omitempty" jsonschema:"Skip LLM Wenyan pass; use mechanical compression only"`
 }
 
+type CondenseLogArgs struct {
+	Text    string `json:"text,omitempty" jsonschema:"Raw log or stack trace text"`
+	Path    string `json:"path,omitempty" jsonschema:"Path to log file"`
+	SkipLLM bool   `json:"skip_llm,omitempty" jsonschema:"Skip LLM Wenyan pass"`
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 func main() {
@@ -147,6 +153,29 @@ func main() {
 		if err != nil {
 			return nil, nil, err
 		}
+		r, err := comp.Condense(ctx, parsed, !args.SkipLLM)
+		if err != nil {
+			return nil, nil, err
+		}
+		return resultContent(r), nil, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "condense_log",
+		Description: "Parse and condense error logs and stack traces (Go/Python/JS/Java/Rust). Deduplicates repeated errors. Provide text or path.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args CondenseLogArgs) (*mcp.CallToolResult, any, error) {
+		if (args.Text == "") == (args.Path == "") {
+			return nil, nil, fmt.Errorf("condense_log requires exactly one of: text, path")
+		}
+		raw := args.Text
+		if args.Path != "" {
+			b, err := os.ReadFile(args.Path)
+			if err != nil {
+				return nil, nil, fmt.Errorf("read log file: %w", err)
+			}
+			raw = string(b)
+		}
+		parsed := ParseLog(raw)
 		r, err := comp.Condense(ctx, parsed, !args.SkipLLM)
 		if err != nil {
 			return nil, nil, err
