@@ -99,6 +99,80 @@ func TestGitHubAPIHeaders(t *testing.T) {
 	}
 }
 
+func TestParseHNComments(t *testing.T) {
+	storyJSON := `{"id":12345,"title":"Test Post","kids":[11,22,33],"type":"story","url":"https://example.com"}`
+	comment1 := `{"id":11,"by":"alice","text":"First comment here","kids":[44],"type":"comment"}`
+	comment2 := `{"id":22,"by":"bob","text":"Second comment","type":"comment"}`
+	comment3 := `{"id":33,"by":"carol","text":"Third comment","type":"comment"}`
+	reply    := `{"id":44,"by":"dave","text":"Reply to alice","type":"comment"}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/12345"):
+			w.Write([]byte(storyJSON))
+		case strings.Contains(r.URL.Path, "/11"):
+			w.Write([]byte(comment1))
+		case strings.Contains(r.URL.Path, "/22"):
+			w.Write([]byte(comment2))
+		case strings.Contains(r.URL.Path, "/33"):
+			w.Write([]byte(comment3))
+		case strings.Contains(r.URL.Path, "/44"):
+			w.Write([]byte(reply))
+		}
+	}))
+	defer srv.Close()
+
+	oldBase := hnAPIBase
+	hnAPIBase = srv.URL
+	defer func() { hnAPIBase = oldBase }()
+
+	text, err := extractHN(context.Background(), "12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "alice") {
+		t.Errorf("missing comment author; got:\n%s", text)
+	}
+	if !strings.Contains(text, "First comment here") {
+		t.Errorf("missing comment text; got:\n%s", text)
+	}
+}
+
+func TestParseRSS(t *testing.T) {
+	rssFeed := `<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <item>
+      <title>Article One</title>
+      <description>Description of article one with details.</description>
+    </item>
+    <item>
+      <title>Article Two</title>
+      <description>Description of article two.</description>
+    </item>
+  </channel>
+</rss>`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		w.Write([]byte(rssFeed))
+	}))
+	defer srv.Close()
+
+	text, err := extractRSS(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Article One") {
+		t.Errorf("missing item title; got:\n%s", text)
+	}
+	if !strings.Contains(text, "Description of article one") {
+		t.Errorf("missing item description; got:\n%s", text)
+	}
+}
+
 func TestExtractHTMLPipeline(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")

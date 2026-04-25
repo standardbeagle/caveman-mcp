@@ -39,9 +39,16 @@ func ExtractURL(ctx context.Context, rawURL string) (string, error) {
 		return extractHN(ctx, u.Query().Get("id"))
 	case host == "reddit.com":
 		return extractReddit(ctx, rawURL)
+	case strings.HasSuffix(u.Path, ".rss"),
+		strings.HasSuffix(u.Path, ".xml") && isRSSURL(u):
+		return extractRSS(ctx, rawURL)
 	default:
 		return extractHTMLPage(ctx, rawURL)
 	}
+}
+
+func isRSSURL(u *url.URL) bool {
+	return strings.Contains(u.Path, "feed") || strings.Contains(u.Path, "rss")
 }
 
 func fetchHTML(ctx context.Context, rawURL string) ([]byte, *url.URL, error) {
@@ -64,6 +71,16 @@ func fetchHTML(ctx context.Context, rawURL string) ([]byte, *url.URL, error) {
 }
 
 func extractHTMLPage(ctx context.Context, rawURL string) (string, error) {
+	// HEAD check for RSS/Atom feeds
+	headReq, _ := http.NewRequestWithContext(ctx, "HEAD", rawURL, nil)
+	if headResp, err := htmlClient.Do(headReq); err == nil {
+		ct := headResp.Header.Get("Content-Type")
+		headResp.Body.Close()
+		if strings.Contains(ct, "application/rss+xml") || strings.Contains(ct, "application/atom+xml") {
+			return extractRSS(ctx, rawURL)
+		}
+	}
+
 	body, parsed, err := fetchHTML(ctx, rawURL)
 	if err != nil {
 		return "", err

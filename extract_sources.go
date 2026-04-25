@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	htmlpkg "html"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,8 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
+
+	nethtml "golang.org/x/net/html"
 )
 
 var (
@@ -312,19 +317,257 @@ func extractGitHubPR(ctx context.Context, owner, repo, prNum string) (string, er
 }
 
 func extractArXiv(ctx context.Context, rawURL string) (string, error) {
-	return "", nil // TODO
+	u, _ := url.Parse(rawURL)
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("cannot parse arXiv ID from %s", rawURL)
+	}
+	paperID := parts[len(parts)-1]
+	paperID = strings.TrimSuffix(paperID, ".pdf")
+
+	absURL := "https://export.arxiv.org/abs/" + paperID
+	body, _, err := fetchHTML(ctx, absURL)
+	if err != nil {
+		return "", fmt.Errorf("fetch arXiv: %w", err)
+	}
+	return extractHTMLText(string(body)), nil
+}
+
+func extractHTMLText(htmlStr string) string {
+	var sb strings.Builder
+	dec := nethtml.NewTokenizer(strings.NewReader(htmlStr))
+	for {
+		tt := dec.Next()
+		if tt == nethtml.ErrorToken {
+			break
+		}
+		if tt == nethtml.TextToken {
+			sb.Write(dec.Text())
+		}
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+var hnAPIBase = "https://hacker-news.firebaseio.com/v0"
+
+type hnItem struct {
+	ID    int    `json:"id"`
+	By    string `json:"by"`
+	Text  string `json:"text"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	Kids  []int  `json:"kids"`
+	Type  string `json:"type"`
+}
+
+func hnGetItem(ctx context.Context, id int) (*hnItem, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET",
+		fmt.Sprintf("%s/item/%d.json", hnAPIBase, id), nil)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var item hnItem
+	return &item, json.NewDecoder(resp.Body).Decode(&item)
 }
 
 func extractHN(ctx context.Context, id string) (string, error) {
-	return "", nil // TODO
+	var itemID int
+	fmt.Sscanf(id, "%d", &itemID)
+	if itemID == 0 {
+		return "", fmt.Errorf("invalid HN item ID: %q", id)
+	}
+	story, err := hnGetItem(ctx, itemID)
+	if err != nil {
+		return "", fmt.Errorf("fetch HN story: %w", err)
+	}
+
+	var sb strings.Builder
+	if story.Title != "" {
+		sb.WriteString("# " + story.Title + "\n\n")
+	}
+	if story.URL != "" {
+		sb.WriteString("URL: " + story.URL + "\n\n")
+	}
+	sb.WriteString("## Comments\n\n")
+
+	limit := 20
+	if len(story.Kids) < limit {
+		limit = len(story.Kids)
+	}
+
+	type result struct {
+		idx  int
+		item *hnItem
+		err  error
+	}
+	results := make([]result, limit)
+	ch := make(chan result, limit)
+	for i, kid := range story.Kids[:limit] {
+		go func(idx, kid int) {
+			item, err := hnGetItem(ctx, kid)
+			ch <- result{idx, item, err}
+		}(i, kid)
+	}
+	for range limit {
+		r := <-ch
+		results[r.idx] = r
+	}
+
+	for _, r := range results {
+		if r.err != nil || r.item == nil {
+			continue
+		}
+		text := htmlpkg.UnescapeString(vttTagRe.ReplaceAllString(r.item.Text, ""))
+		sb.WriteString(fmt.Sprintf("**%s:** %s\n\n", r.item.By, text))
+		replyLimit := 2
+		if len(r.item.Kids) < replyLimit {
+			replyLimit = len(r.item.Kids)
+		}
+		for _, replyID := range r.item.Kids[:replyLimit] {
+			reply, err := hnGetItem(ctx, replyID)
+			if err == nil && reply != nil {
+				replyText := htmlpkg.UnescapeString(vttTagRe.ReplaceAllString(reply.Text, ""))
+				sb.WriteString(fmt.Sprintf("  > **%s:** %s\n\n", reply.By, replyText))
+			}
+		}
+	}
+
+	return sb.String(), nil
 }
 
 func extractReddit(ctx context.Context, rawURL string) (string, error) {
-	return "", nil // TODO
+	jsonURL := strings.TrimSuffix(rawURL, "/") + ".json?limit=100"
+	req, _ := http.NewRequestWithContext(ctx, "GET", jsonURL, nil)
+	req.Header.Set("User-Agent", "script:caveman-mcp:v0.2 (by /u/caveman-mcp-bot)")
+
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch reddit: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		return "", fmt.Errorf("Reddit returned non-JSON (Cloudflare block or subreddit restriction); Content-Type: %s", ct)
+	}
+
+	var raw []json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil || len(raw) < 2 {
+		return "", fmt.Errorf("parse reddit response: %w", err)
+	}
+
+	type redditChild struct {
+		Kind string `json:"kind"`
+		Data struct {
+			Title    string          `json:"title"`
+			Selftext string          `json:"selftext"`
+			Author   string          `json:"author"`
+			Score    int             `json:"score"`
+			Body     string          `json:"body"`
+			Replies  json.RawMessage `json:"replies"`
+		} `json:"data"`
+	}
+	type listing struct {
+		Data struct {
+			Children []redditChild `json:"children"`
+		} `json:"data"`
+	}
+
+	var post, comments listing
+	json.Unmarshal(raw[0], &post)
+	json.Unmarshal(raw[1], &comments)
+
+	var sb strings.Builder
+	if len(post.Data.Children) > 0 {
+		p := post.Data.Children[0].Data
+		sb.WriteString("# " + p.Title + "\n\n")
+		if p.Selftext != "" {
+			sb.WriteString(p.Selftext + "\n\n")
+		}
+	}
+	sb.WriteString("## Comments\n\n")
+
+	type scoredComment struct {
+		author string
+		body   string
+		score  int
+	}
+	var scored []scoredComment
+	for _, c := range comments.Data.Children {
+		if c.Kind != "t1" {
+			continue
+		}
+		scored = append(scored, scoredComment{c.Data.Author, c.Data.Body, c.Data.Score})
+	}
+	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
+	limit := 20
+	if len(scored) < limit {
+		limit = len(scored)
+	}
+	for _, c := range scored[:limit] {
+		sb.WriteString(fmt.Sprintf("[%d] u/%s: %s\n\n", c.score, c.author, c.body))
+	}
+
+	return sb.String(), nil
 }
 
 func extractRSS(ctx context.Context, rawURL string) (string, error) {
-	return "", nil // TODO
+	req, _ := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	req.Header.Set("User-Agent", "caveman-mcp/0.2")
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch RSS: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	type item struct {
+		Title       string `xml:"title"`
+		Description string `xml:"description"`
+		Content     string `xml:"encoded"`
+	}
+	type channel struct {
+		Title string `xml:"title"`
+		Items []item `xml:"item"`
+	}
+	type feed struct {
+		Channel channel `xml:"channel"`
+		Title   string  `xml:"title"`
+		Entries []struct {
+			Title   string `xml:"title"`
+			Summary string `xml:"summary"`
+		} `xml:"entry"`
+	}
+
+	var f feed
+	if err := xml.Unmarshal(body, &f); err != nil {
+		return "", fmt.Errorf("parse RSS/Atom: %w", err)
+	}
+
+	var sb strings.Builder
+	title := f.Channel.Title
+	if title == "" {
+		title = f.Title
+	}
+	if title != "" {
+		sb.WriteString("# " + title + "\n\n")
+	}
+
+	for _, item := range f.Channel.Items {
+		sb.WriteString("## " + item.Title + "\n\n")
+		content := item.Content
+		if content == "" {
+			content = item.Description
+		}
+		sb.WriteString(content + "\n\n")
+	}
+	for _, e := range f.Entries {
+		sb.WriteString("## " + e.Title + "\n\n")
+		sb.WriteString(e.Summary + "\n\n")
+	}
+
+	return strings.TrimSpace(sb.String()), nil
 }
 
 func DescribeImage(ctx context.Context, path string, cfg Config) (string, error) {
