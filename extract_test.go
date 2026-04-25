@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -56,6 +57,45 @@ Third line here`
 	}
 	if strings.Contains(text, "<c.") {
 		t.Errorf("VTT tags not stripped; got: %q", text)
+	}
+}
+
+func TestExtractGitHubRouting(t *testing.T) {
+	cases := []struct {
+		path   string
+		wantPR bool
+	}{
+		{"/owner/repo", false},
+		{"/owner/repo/", false},
+		{"/owner/repo/pull/42", true},
+		{"/owner/repo/tree/main", false},
+	}
+	for _, c := range cases {
+		u, _ := url.Parse("https://github.com" + c.path)
+		isPR := isGitHubPR(u)
+		if isPR != c.wantPR {
+			t.Errorf("path %s: isPR=%v, want %v", c.path, isPR, c.wantPR)
+		}
+	}
+}
+
+func TestGitHubAPIHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") != "application/vnd.github.v3+json" {
+			t.Errorf("missing Accept header; got %q", r.Header.Get("Accept"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"name":"testrepo","description":"A test repo","language":"Go","stargazers_count":42}`))
+	}))
+	defer srv.Close()
+
+	oldGHBase := githubAPIBase
+	githubAPIBase = srv.URL
+	defer func() { githubAPIBase = oldGHBase }()
+
+	_, err := fetchGitHubRepoMeta(context.Background(), "owner", "repo")
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
