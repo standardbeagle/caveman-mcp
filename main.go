@@ -67,7 +67,7 @@ func main() {
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "caveman-mcp",
-		Version: "0.1.0",
+		Version: "0.2.0",
 	}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{
