@@ -10,6 +10,55 @@ import (
 
 func TestPlaceholder(t *testing.T) {}
 
+func TestExtractYouTubeVideoID(t *testing.T) {
+	cases := []struct {
+		url string
+		id  string
+	}{
+		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"},
+		{"https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ"},
+		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s", "dQw4w9WgXcQ"},
+		{"https://www.youtube.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"},
+	}
+	for _, c := range cases {
+		id, err := youtubeVideoID(c.url)
+		if err != nil {
+			t.Errorf("url %s: %v", c.url, err)
+			continue
+		}
+		if id != c.id {
+			t.Errorf("url %s: got %q, want %q", c.url, id, c.id)
+		}
+	}
+}
+
+func TestParseVTT(t *testing.T) {
+	vtt := `WEBVTT
+
+00:00:00.000 --> 00:00:03.000
+Hello world this is a test
+
+00:00:03.000 --> 00:00:06.000
+<c.en>Second line of</c.en> the transcript
+
+00:00:06.000 --> 00:00:09.000
+Third line here`
+
+	text := parseVTT(vtt)
+	if !strings.Contains(text, "Hello world") {
+		t.Errorf("missing first line; got: %q", text)
+	}
+	if !strings.Contains(text, "Third line") {
+		t.Errorf("missing third line; got: %q", text)
+	}
+	if strings.Contains(text, "00:00") {
+		t.Errorf("timestamps not stripped; got: %q", text)
+	}
+	if strings.Contains(text, "<c.") {
+		t.Errorf("VTT tags not stripped; got: %q", text)
+	}
+}
+
 func TestExtractHTMLPipeline(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
