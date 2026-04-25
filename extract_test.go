@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -303,5 +305,60 @@ func TestTranscribeAudioMock(t *testing.T) {
 	}
 	if !strings.Contains(text, "test transcript") {
 		t.Errorf("unexpected transcript: %q", text)
+	}
+}
+
+func TestExtractPPTX(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	slideXML := `<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp><p:txBody><a:p><a:r><a:t>Slide Title Here</a:t></a:r></a:p></p:txBody></p:sp>
+    <p:sp><p:txBody><a:p><a:r><a:t>Bullet point one</a:t></a:r></a:p></p:txBody></p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`
+	fw, _ := zw.Create("ppt/slides/slide1.xml")
+	fw.Write([]byte(slideXML))
+
+	fw2, _ := zw.Create("[Content_Types].xml")
+	fw2.Write([]byte(`<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>`))
+	zw.Close()
+
+	tmp, _ := os.CreateTemp("", "test-*.pptx")
+	tmp.Write(buf.Bytes())
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	text, err := ExtractFile(tmp.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Slide Title Here") {
+		t.Errorf("missing slide title; got:\n%s", text)
+	}
+	if !strings.Contains(text, "Bullet point one") {
+		t.Errorf("missing bullet; got:\n%s", text)
+	}
+}
+
+func TestExtractCSV(t *testing.T) {
+	csvData := "name,age,city\nAlice,30,NYC\nBob,25,LA\nCarol,35,Chicago\n"
+	tmp, _ := os.CreateTemp("", "test-*.csv")
+	tmp.WriteString(csvData)
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	text, err := ExtractFile(tmp.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "name") {
+		t.Errorf("missing column header; got:\n%s", text)
+	}
+	if !strings.Contains(text, "Alice") || !strings.Contains(text, "Bob") {
+		t.Errorf("missing rows; got:\n%s", text)
 	}
 }
