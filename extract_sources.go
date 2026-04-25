@@ -9,6 +9,7 @@ import (
 	"fmt"
 	htmlpkg "html"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -598,6 +599,8 @@ UI screenshots: list key components and layout.
 Photos: scene + key subjects.
 Preserve ALL text, numbers, identifiers exactly.`
 
+const maxAudioBytes = 25 * 1024 * 1024 // 25MB
+
 func DescribeImage(ctx context.Context, path string, cfg Config) (string, error) {
 	imgBytes, err := os.ReadFile(path)
 	if err != nil {
@@ -657,5 +660,62 @@ func DescribeImage(ctx context.Context, path string, cfg Config) (string, error)
 }
 
 func TranscribeAudio(ctx context.Context, path string, cfg Config) (string, error) {
-	return "", nil // TODO
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat audio file: %w", err)
+	}
+	if info.Size() > maxAudioBytes {
+		return "", fmt.Errorf("audio file exceeds 25MB Whisper API limit: %.1fMB",
+			float64(info.Size())/(1024*1024))
+	}
+
+	audioBytes, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read audio: %w", err)
+	}
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	fw, err := w.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return "", err
+	}
+	fw.Write(audioBytes)
+	w.WriteField("model", "whisper-1")
+	w.Close()
+
+	apiKey := os.Getenv("WHISPER_API_KEY")
+	if apiKey == "" {
+		apiKey = cfg.APIKey
+	}
+	baseURL := os.Getenv("WHISPER_BASE_URL")
+	if baseURL == "" {
+		baseURL = cfg.BaseURL
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/audio/transcriptions", &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("whisper API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Text  string  `json:"text"`
+		Error *struct{ Message string `json:"message"` } `json:"error,omitempty"`
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", fmt.Errorf("decode whisper response: %w (body: %.200s)", err, raw)
+	}
+	if result.Error != nil {
+		return "", fmt.Errorf("whisper error: %s", result.Error.Message)
+	}
+	return result.Text, nil
 }

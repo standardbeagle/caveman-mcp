@@ -17,6 +17,10 @@ var imageExts = map[string]bool{
 	".gif": true, ".webp": true, ".bmp": true,
 }
 
+var audioExts = map[string]bool{
+	".mp3": true, ".wav": true, ".m4a": true, ".ogg": true, ".flac": true,
+}
+
 // ── tool arg structs ──────────────────────────────────────────────────────────
 
 type CondenseURLArgs struct {
@@ -86,6 +90,19 @@ func main() {
 				Ratio:           1.0,
 				Method:          "vision",
 			}
+			return resultContent(r), nil, nil
+		}
+
+		if audioExts[ext] {
+			transcript, err := TranscribeAudio(ctx, args.Path, cfg)
+			if err != nil {
+				return nil, nil, fmt.Errorf("transcribe audio %s: %w", args.Path, err)
+			}
+			r, err := comp.Condense(ctx, transcript, !args.SkipLLM)
+			if err != nil {
+				return nil, nil, err
+			}
+			r.Method = "whisper+" + r.Method
 			return resultContent(r), nil, nil
 		}
 

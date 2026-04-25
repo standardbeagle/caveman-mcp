@@ -261,3 +261,47 @@ func TestExtractHTMLPipeline(t *testing.T) {
 		t.Errorf("footer text leaked into output; got:\n%s", text)
 	}
 }
+
+func TestTranscribeAudioSizeGuard(t *testing.T) {
+	tmp, _ := os.CreateTemp("", "big-*.mp3")
+	tmp.Write(make([]byte, 26*1024*1024))
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	cfg := Config{APIKey: "test", BaseURL: "http://localhost", Model: "test"}
+	_, err := TranscribeAudio(context.Background(), tmp.Name(), cfg)
+	if err == nil {
+		t.Error("expected error for oversized file")
+	}
+	if !strings.Contains(err.Error(), "25MB") {
+		t.Errorf("error should mention 25MB limit; got: %v", err)
+	}
+}
+
+func TestTranscribeAudioMock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || !strings.Contains(r.URL.Path, "transcriptions") {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if !strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+			t.Errorf("expected multipart; got %s", r.Header.Get("Content-Type"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"text":"Hello this is a test transcript."}`))
+	}))
+	defer srv.Close()
+
+	cfg := Config{BaseURL: srv.URL, APIKey: "test", Model: "whisper-1"}
+	tmp, _ := os.CreateTemp("", "test-*.mp3")
+	tmp.Write([]byte("fake mp3 data"))
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	text, err := TranscribeAudio(context.Background(), tmp.Name(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "test transcript") {
+		t.Errorf("unexpected transcript: %q", text)
+	}
+}
