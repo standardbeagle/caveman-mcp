@@ -362,3 +362,87 @@ func TestExtractCSV(t *testing.T) {
 		t.Errorf("missing rows; got:\n%s", text)
 	}
 }
+
+func TestParseGitDiff(t *testing.T) {
+	diff := `diff --git a/main.go b/main.go
+index abc123..def456 100644
+--- a/main.go
++++ b/main.go
+@@ -10,7 +10,8 @@ func main() {
+ 	ctx := context.Background()
+-	server := mcp.NewServer("old", nil)
++	server := mcp.NewServer(&mcp.Implementation{Name: "caveman-mcp"}, nil)
++	server.SetVersion("0.2.0")
+ 	server.Run(ctx, &mcp.StdioTransport{})
+diff --git a/compress.go b/compress.go
+index 111..222 100644
+--- a/compress.go
++++ b/compress.go
+@@ -5,3 +5,4 @@ package main
+ import "strings"
++import "unicode"
+`
+
+	summary, err := ParseGitDiff(diff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(summary, "main.go") {
+		t.Errorf("missing file name; got:\n%s", summary)
+	}
+	if !strings.Contains(summary, "compress.go") {
+		t.Errorf("missing second file; got:\n%s", summary)
+	}
+	if !strings.Contains(summary, "+") || !strings.Contains(summary, "-") {
+		t.Errorf("missing diff stats; got:\n%s", summary)
+	}
+}
+
+func TestParseGitLog(t *testing.T) {
+	log := `commit abc12345def67890
+Author: Alice <alice@example.com>
+Date:   Thu Apr 25 10:00:00 2026 -0700
+
+    feat: add YouTube extractor
+
+commit bcd23456efa78901
+Author: Bob <bob@example.com>
+Date:   Wed Apr 24 09:00:00 2026 -0700
+
+    fix: handle empty caption tracks
+
+commit cde34567fab89012
+Author: Alice <alice@example.com>
+Date:   Tue Apr 23 08:00:00 2026 -0700
+
+    feat: add arXiv support
+`
+
+	summary, err := ParseGitLog(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(summary, "feat") {
+		t.Errorf("missing feat group; got:\n%s", summary)
+	}
+	if !strings.Contains(summary, "fix") {
+		t.Errorf("missing fix group; got:\n%s", summary)
+	}
+}
+
+func TestCondenseGitValidation(t *testing.T) {
+	args := CondenseGitArgs{Text: "some diff", Path: "/tmp/diff.txt"}
+	_, err := resolveGitInput(context.Background(), args)
+	if err == nil {
+		t.Error("expected error for multiple inputs")
+	}
+	if !strings.Contains(err.Error(), "exactly one") {
+		t.Errorf("wrong error: %v", err)
+	}
+
+	args2 := CondenseGitArgs{}
+	_, err2 := resolveGitInput(context.Background(), args2)
+	if err2 == nil {
+		t.Error("expected error for no input")
+	}
+}

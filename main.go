@@ -38,6 +38,13 @@ type CondenseTextArgs struct {
 	SkipLLM bool   `json:"skip_llm,omitempty" jsonschema:"Skip LLM Wenyan pass; use mechanical compression only"`
 }
 
+type CondenseGitArgs struct {
+	Text    string `json:"text,omitempty"     jsonschema:"Raw git diff, log, or blame text"`
+	Path    string `json:"path,omitempty"     jsonschema:"Path to file containing diff/log/blame"`
+	PRUrl   string `json:"pr_url,omitempty"   jsonschema:"GitHub PR URL (public repos, no auth required)"`
+	SkipLLM bool   `json:"skip_llm,omitempty" jsonschema:"Skip LLM Wenyan pass; use mechanical compression only"`
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 func main() {
@@ -122,6 +129,25 @@ func main() {
 		Description: "Condense raw text to Wenyan ultra-compressed form. Returns compressed text with stats.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args CondenseTextArgs) (*mcp.CallToolResult, any, error) {
 		r, err := comp.Condense(ctx, args.Text, !args.SkipLLM)
+		if err != nil {
+			return nil, nil, err
+		}
+		return resultContent(r), nil, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "condense_git",
+		Description: "Condense git diffs, logs, blame, or GitHub PRs to Wenyan. Provide one of: text (raw), path (file), pr_url (GitHub PR URL).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args CondenseGitArgs) (*mcp.CallToolResult, any, error) {
+		raw, err := resolveGitInput(ctx, args)
+		if err != nil {
+			return nil, nil, err
+		}
+		parsed, err := detectAndParse(raw)
+		if err != nil {
+			return nil, nil, err
+		}
+		r, err := comp.Condense(ctx, parsed, !args.SkipLLM)
 		if err != nil {
 			return nil, nil, err
 		}
