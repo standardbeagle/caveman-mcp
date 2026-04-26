@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>caveman-mcp — Me Smash Text, Make Small</title>
+  <meta name="description" content="MCP server that compresses URLs, files, diffs, and logs to 65-80% of original size using two-pass Wenyan compression.">
+  <style>
+    :root { --bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --code-bg: #161b22; --border: #30363d; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.6; padding: 2rem 1rem; }
+    .container { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 2.4rem; font-weight: 700; margin-bottom: .5rem; }
+    .tagline { color: var(--muted); font-size: 1.1rem; margin-bottom: 2.5rem; }
+    h2 { font-size: 1.2rem; font-weight: 600; margin: 2rem 0 .75rem; color: var(--accent); }
+    pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: .875rem; margin-bottom: 1.5rem; }
+    code { font-family: "SFMono-Regular", Consolas, monospace; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; font-size: .9rem; }
+    th { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 500; }
+    td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); }
+    td:first-child { font-family: "SFMono-Regular", Consolas, monospace; color: var(--accent); }
+    .ratio { font-size: 2.5rem; font-weight: 700; color: var(--accent); }
+    .stat-row { display: flex; gap: 2rem; margin-bottom: 2rem; }
+    .stat { text-align: center; }
+    .stat-label { font-size: .8rem; color: var(--muted); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .cta { margin-top: 2.5rem; padding-top: 2rem; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>🪨 caveman-mcp</h1>
+  <p class="tagline">Me smash text, make small. Feed URL, file, diff, log. Get Wenyan.</p>
+
+  <div class="stat-row">
+    <div class="stat"><div class="ratio">65–80%</div><div class="stat-label">typical compression</div></div>
+    <div class="stat"><div class="ratio">5</div><div class="stat-label">tool types</div></div>
+    <div class="stat"><div class="ratio">2-pass</div><div class="stat-label">pipeline</div></div>
+  </div>
+
+  <h2>Install</h2>
+  <pre><code>{
+  "mcpServers": {
+    "caveman": {
+      "command": "npx",
+      "args": ["-y", "@standardbeagle/caveman-mcp"],
+      "env": { "LLM_API_KEY": "sk-or-v1-..." }
+    }
+  }
+}</code></pre>
+
+  <h2>Tools</h2>
+  <table>
+    <tr><th>Tool</th><th>Input</th></tr>
+    <tr><td>condense_url</td><td>Any URL — webpage, GitHub repo/PR, YouTube, arXiv, HN, Reddit, RSS</td></tr>
+    <tr><td>condense_file</td><td>pdf, docx, xlsx, pptx, md, html, png/jpg (vision), mp3/wav (whisper)</td></tr>
+    <tr><td>condense_git</td><td>Unified diff, git log, git blame, GitHub PR URL</td></tr>
+    <tr><td>condense_log</td><td>Stack traces and error logs (Go, Python, JS, Java, Rust)</td></tr>
+    <tr><td>condense_text</td><td>Raw text → Wenyan, no fetching</td></tr>
+  </table>
+
+  <h2>Pipeline</h2>
+  <pre><code>input
+  → mechanical: drop articles, fillers, redundancy
+  → LLM Wenyan: classical Chinese ultra-compression
+  → output: compressed text + ratio + method</code></pre>
+
+  <h2>Any LLM endpoint</h2>
+  <p>Works with any OpenAI-compatible API. Default: OpenRouter + <code>claude-haiku-4-5</code>.<br>
+  Set <code>LLM_BASE_URL</code> + <code>LLM_MODEL</code> to use any provider. Set <code>skip_llm: true</code> for mechanical-only (zero API cost).</p>
+
+  <div class="cta">
+    <a href="https://github.com/standardbeagle/caveman-mcp">GitHub</a> ·
+    <a href="https://www.npmjs.com/package/@standardbeagle/caveman-mcp">npm</a> ·
+    MIT License
+  </div>
+</div>
+</body>
+</html>
