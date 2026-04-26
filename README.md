@@ -73,40 +73,35 @@ Typical ratios: 65–80% of original. Code blocks survive intact.
 
 ## Setup
 
-```bash
-go install github.com/beagle/caveman-mcp@latest
-# or build from source:
-git clone ...
-cd caveman-mcp && go build -o caveman-mcp .
-```
-
-### Environment Variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `LLM_API_KEY` | — | Primary API key |
-| `OPENROUTER_API_KEY` | — | Alias for `LLM_API_KEY` |
-| `LLM_BASE_URL` | `https://openrouter.ai/api/v1` | LLM endpoint |
-| `LLM_MODEL` | `anthropic/claude-haiku-4-5` | Text + vision model |
-| `WHISPER_API_KEY` | falls back to `LLM_API_KEY` | Audio transcription |
-| `WHISPER_BASE_URL` | `https://openrouter.ai/api/v1` | Whisper endpoint |
-| `GITHUB_TOKEN` | — | GitHub API (higher rate limits) |
-
-Set `skip_llm: true` on any tool call for mechanical-only compression (no API cost).
-
-### Claude Code Config
+### Claude Code (recommended)
 
 ```json
 {
   "mcpServers": {
     "caveman": {
-      "command": "/path/to/caveman-mcp",
+      "command": "npx",
+      "args": ["-y", "@standardbeagle/caveman-mcp"],
       "env": {
-        "OPENROUTER_API_KEY": "sk-or-v1-..."
+        "LLM_API_KEY": "sk-or-v1-..."
       }
     }
   }
 }
+```
+
+No install step — `npx` downloads and runs on first use.
+
+### Go install
+
+```bash
+go install github.com/standardbeagle/caveman-mcp@latest
+```
+
+### Build from source
+
+```bash
+git clone https://github.com/standardbeagle/caveman-mcp
+cd caveman-mcp && go build -o caveman-mcp .
 ```
 
 ---
