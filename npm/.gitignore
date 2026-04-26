@@ -1,0 +1,3 @@
+bin/caveman-mcp-bin
+bin/caveman-mcp-bin.exe
+bin/*.tmp*

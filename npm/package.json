@@ -1,0 +1,24 @@
+{
+  "name": "@standardbeagle/caveman-mcp",
+  "version": "0.1.0",
+  "description": "MCP server: two-pass Wenyan compression for URLs, files, diffs, logs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/standardbeagle/caveman-mcp"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "caveman-mcp": "bin/caveman-mcp"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "files": [
+    "bin/caveman-mcp",
+    "scripts/postinstall.js",
+    "scripts/run.js"
+  ]
+}
