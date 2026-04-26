@@ -1,0 +1,5 @@
+caveman-mcp
+caveman-mcp.exe
+npm/bin/caveman-mcp-bin
+npm/bin/caveman-mcp-bin.exe
+npm/bin/*.tmp*

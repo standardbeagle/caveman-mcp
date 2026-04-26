@@ -1,4 +1,4 @@
-module github.com/beagle/caveman-mcp
+module github.com/standardbeagle/caveman-mcp
 
 go 1.25.0
 
