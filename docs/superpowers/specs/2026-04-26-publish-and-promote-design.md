@@ -164,7 +164,7 @@ Web form: submit GitHub URL. Glama auto-crawls README and indexes tools.
 - Source: `docs/` folder, `main` branch, GitHub Pages enabled in repo settings
 - Single `docs/index.html` — no build step, no framework
 - Content: hero tagline, tools table, install snippet, live compression stats badge
-- Google crawls `standardbeagle.github.io/caveman-mcp` without custom domain
+- Google crawls `dev.standardbeagle.com/caveman-mcp` without custom domain
 - Custom domain optional for SEO uplift; not required for indexing
 
 ---

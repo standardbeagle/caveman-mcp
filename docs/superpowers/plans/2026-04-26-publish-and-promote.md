@@ -813,7 +813,7 @@ git commit -m "docs: add marketing content drafts for HN, Reddit, Twitter, Dev.t
 gh repo create standardbeagle/caveman-mcp \
   --public \
   --description "MCP server: two-pass Wenyan compression for URLs, files, diffs, logs" \
-  --homepage "https://standardbeagle.github.io/caveman-mcp"
+  --homepage "https://dev.standardbeagle.com/caveman-mcp"
 ```
 
 - [ ] **Step 2: Init git, add remote, push**
